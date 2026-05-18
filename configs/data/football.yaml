@@ -1,0 +1,17 @@
+# Football dataset config.
+# Resolved to a real Ultralytics data.yaml during Session 1.
+name: football-players
+root: data/processed/football-players
+yaml_path: ${data.root}/data.yaml
+# Source: Roboflow Universe "football-players-detection".
+# After Session 1 we may augment with extra frames extracted from public match
+# footage to increase intra-class diversity (lighting, camera angles, leagues).
+roboflow:
+  workspace: roboflow-jvuqo
+  project: football-players-detection-3zvbc
+  version: 11
+  format: yolov11
+splits:
+  train: ${data.root}/images/train
+  val: ${data.root}/images/valid
+  test: ${data.root}/images/test

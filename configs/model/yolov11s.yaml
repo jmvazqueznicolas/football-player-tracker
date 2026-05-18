@@ -1,0 +1,11 @@
+# YOLOv11 small — better accuracy, still GPU-friendly.
+name: yolov11s
+weights: yolo11s.pt
+imgsz: 640
+registry_name: football-yolov11s
+num_classes: 4
+class_names:
+  - player
+  - ball
+  - referee
+  - goalkeeper

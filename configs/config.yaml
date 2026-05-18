@@ -1,0 +1,35 @@
+# Root Hydra config. Override anything from the CLI:
+#   python -m football_tracker.training.train model=yolov11s training.epochs=100
+defaults:
+  - model: yolov11n
+  - data: football
+  - training: default
+  - tracking: botsort
+  - tuning: optuna
+  - _self_
+
+# Project-wide settings
+project:
+  name: football-player-tracker
+  seed: 42
+  output_dir: runs/${now:%Y-%m-%d_%H-%M-%S}
+
+# Experiment tracking
+tracking_backend:
+  mlflow:
+    enabled: true
+    tracking_uri: ${oc.env:MLFLOW_TRACKING_URI,file:./mlruns}
+    experiment_name: ${oc.env:MLFLOW_EXPERIMENT_NAME,football-player-tracker}
+  wandb:
+    enabled: true
+    project: ${oc.env:WANDB_PROJECT,football-player-tracker}
+    entity: ${oc.env:WANDB_ENTITY,null}
+    tags: [yolov11, football, detection]
+
+# Hydra runtime settings
+hydra:
+  run:
+    dir: ${project.output_dir}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}

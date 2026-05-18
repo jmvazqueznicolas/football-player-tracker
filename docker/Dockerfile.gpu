@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1.7
+# GPU-enabled image for training and high-throughput inference.
+# Requires NVIDIA Container Toolkit on the host.
+FROM nvcr.io/nvidia/pytorch:24.05-py3
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src \
+    LOG_LEVEL=INFO
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY pyproject.toml ./
+RUN pip install --upgrade pip poetry==1.8.3 \
+    && poetry config virtualenvs.create false \
+    && poetry install --no-root --without dev
+
+COPY src ./src
+COPY configs ./configs
+COPY models ./models
+
+EXPOSE 8000
+CMD ["uvicorn", "football_tracker.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

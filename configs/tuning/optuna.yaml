@@ -1,0 +1,32 @@
+# Optuna study config consumed by football_tracker.training.tune
+study_name: football-yolov11-hpo
+storage: sqlite:///optuna_storage.db
+direction: maximize
+metric: metrics/mAP50-95(B)
+n_trials: 20
+timeout_seconds: null  # no timeout
+sampler: TPE
+pruner: MedianPruner
+# Per-trial training is short to keep cost low
+trial_epochs: 15
+search_space:
+  lr0:
+    type: loguniform
+    low: 1.0e-5
+    high: 1.0e-2
+  momentum:
+    type: uniform
+    low: 0.85
+    high: 0.98
+  weight_decay:
+    type: loguniform
+    low: 1.0e-6
+    high: 1.0e-3
+  mosaic:
+    type: uniform
+    low: 0.0
+    high: 1.0
+  mixup:
+    type: uniform
+    low: 0.0
+    high: 0.3

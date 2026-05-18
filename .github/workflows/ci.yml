@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Lint, type-check, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Poetry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry
+            ~/.cache/pip
+            .venv
+          key: ${{ runner.os }}-poetry-${{ hashFiles('pyproject.toml') }}
+
+      - name: Install Poetry
+        run: |
+          pipx install poetry==1.8.3
+          poetry --version
+
+      - name: Install dependencies (CPU torch)
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --with dev
+
+      - name: Ruff
+        run: poetry run ruff check src tests
+
+      - name: Black
+        run: poetry run black --check src tests
+
+      - name: Mypy
+        run: poetry run mypy src
+
+      - name: Pytest
+        run: poetry run pytest -m "not slow and not gpu"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: .coverage
+
+  docker-build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          tags: football-tracker:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,46 @@
+name: Train Model
+
+# Manually triggered or on a schedule. Real training runs on a GCP VM with GPU
+# triggered from this workflow via gcloud; this file is the orchestration entry
+# point. Implementation lands in Session 6.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model config to use"
+        required: true
+        default: "yolov11n"
+        type: choice
+        options: [yolov11n, yolov11s]
+      epochs:
+        description: "Training epochs"
+        required: true
+        default: "50"
+
+jobs:
+  train:
+    name: Train on GCP GPU
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Launch training VM
+        run: |
+          echo "Training pipeline placeholder."
+          echo "Implementation in Session 6 will:"
+          echo "  - Spin up a preemptible Compute Engine VM with a T4 GPU"
+          echo "  - Pull the latest code and dataset (DVC)"
+          echo "  - Run poetry run football-tracker train model=${{ inputs.model }} training.epochs=${{ inputs.epochs }}"
+          echo "  - Upload best.pt to GCS and register in MLflow Model Registry"
+          echo "  - Promote to Production if metrics gate passes"
+          echo "  - Tear down the VM"

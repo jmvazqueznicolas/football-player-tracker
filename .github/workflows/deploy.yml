@@ -1,0 +1,30 @@
+name: Deploy Demo to Hugging Face Spaces
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "docker/**"
+      - "configs/**"
+      - "pyproject.toml"
+      - ".github/workflows/deploy.yml"
+
+jobs:
+  deploy:
+    name: Push to Hugging Face Space
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync to Hugging Face Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME }}
+        run: |
+          echo "Demo deployment placeholder."
+          echo "Implementation in Session 6 will:"
+          echo "  - git push to https://huggingface.co/spaces/$HF_SPACE_NAME using HF_TOKEN"
+          echo "  - HF Spaces auto-builds the Docker image and redeploys"

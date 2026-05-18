@@ -1,0 +1,11 @@
+# YOLOv11 nano — fastest, smallest. Good for baseline and CPU inference.
+name: yolov11n
+weights: yolo11n.pt
+imgsz: 640
+registry_name: football-yolov11n
+num_classes: 4
+class_names:
+  - player
+  - ball
+  - referee
+  - goalkeeper
