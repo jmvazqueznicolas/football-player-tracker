@@ -10,7 +10,15 @@ def test_package_imports() -> None:
 
 
 def test_subpackages_import() -> None:
-    from football_tracker import api, data, inference, models, tracking, training, utils  # noqa: F401
+    from football_tracker import (  # noqa: F401
+        api,
+        data,
+        inference,
+        models,
+        tracking,
+        training,
+        utils,
+    )
 
 
 def test_logging_setup_runs() -> None:

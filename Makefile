@@ -1,4 +1,4 @@
-.PHONY: help install install-dev lint format type-check test test-fast coverage clean train tune serve api streamlit docker-build docker-run docker-push dvc-pull dvc-push mlflow-ui notebook gcp-setup
+.PHONY: help setup install install-dev lint format type-check test test-fast coverage clean download-data train tune serve api streamlit docker-build docker-run docker-push dvc-pull dvc-push mlflow-ui notebook gcp-setup
 
 # Default target
 .DEFAULT_GOAL := help
@@ -12,6 +12,18 @@ help:  ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 # ----- Setup -----
+setup:  ## One-time project bootstrap: configure Poetry, pick Python 3.12, install everything
+	@echo ">>> Checking Poetry version..."
+	@poetry --version
+	@echo ">>> Configuring Poetry to keep .venv inside the project..."
+	poetry config virtualenvs.in-project true
+	@echo ">>> Pointing Poetry at Python 3.12..."
+	@command -v python3.12 >/dev/null 2>&1 || { echo "ERROR: python3.12 not found. Install it with: brew install python@3.12"; exit 1; }
+	poetry env use python3.12
+	@echo ">>> Installing dependencies and pre-commit hooks..."
+	$(MAKE) install-dev
+	@echo ">>> Done. Activate the venv with: poetry shell  (or use 'poetry run <cmd>')"
+
 install:  ## Install runtime dependencies with Poetry
 	poetry install --only main
 
@@ -42,6 +54,10 @@ test-fast:  ## Run tests excluding slow ones
 coverage:  ## Open coverage report in browser (after running test)
 	poetry run pytest --cov-report=html
 	@echo "Open htmlcov/index.html in your browser"
+
+# ----- Data -----
+download-data:  ## Download dataset from Roboflow (reads .env + configs/data/football.yaml)
+	poetry run python scripts/download_dataset.py
 
 # ----- Training and experimentation -----
 train:  ## Train the baseline YOLOv11 model

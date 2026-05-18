@@ -8,7 +8,7 @@ readme = "README.md"
 packages = [{include = "football_tracker", from = "src"}]
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.14"
+python = ">=3.11,<3.13"
 # Core ML / CV
 torch = "^2.4.0"
 torchvision = "^0.19.0"
@@ -21,7 +21,9 @@ onnx = "^1.16.0"
 onnxruntime = "^1.18.0"
 
 # MLOps
-mlflow = "^2.16.0"
+# NOTE: pinned to 3.x because 2.22.x has a known SIGSEGV crash on macOS arm64
+# (gunicorn workers segfault on boot). 3.x ships with the fix.
+mlflow = "^3.12.0"
 wandb = "^0.18.0"
 dvc = {extras = ["gs"], version = "^3.55.0"}
 optuna = "^4.0.0"
@@ -32,6 +34,9 @@ fiftyone = "^1.0.0"
 pandas = "^2.2.0"
 matplotlib = "^3.9.0"
 seaborn = "^0.13.0"
+
+# Dataset source
+roboflow = "^1.1.50"
 
 # Serving
 fastapi = "^0.115.0"
@@ -101,6 +106,22 @@ ignore = ["E501"]  # handled by black
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]  # allow asserts in tests
 "__init__.py" = ["F401"]    # allow unused imports
+
+[tool.ruff.lint.flake8-bugbear]
+# Typer / FastAPI use function calls in defaults intentionally (Option, Argument,
+# Depends). These return immutable metadata objects, not mutable state. Telling
+# ruff to whitelist them avoids false positives on B008.
+extend-immutable-calls = [
+    "typer.Option",
+    "typer.Argument",
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.File",
+    "fastapi.Form",
+]
 
 [tool.mypy]
 python_version = "3.11"

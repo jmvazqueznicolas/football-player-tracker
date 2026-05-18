@@ -23,4 +23,6 @@ st.markdown(
     """
 )
 
-st.info("Coming soon: image and video upload widgets, annotated preview and trajectory JSON download.")
+st.info(
+    "Coming soon: image and video upload widgets, annotated preview and trajectory JSON download."
+)
