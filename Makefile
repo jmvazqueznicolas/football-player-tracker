@@ -1,4 +1,4 @@
-.PHONY: help setup install install-dev lint format type-check test test-fast coverage clean download-data train tune serve api streamlit docker-build docker-run docker-push dvc-pull dvc-push mlflow-ui notebook gcp-setup
+.PHONY: help setup install install-dev lint format type-check test test-fast coverage clean download-data sanity-train train tune serve api streamlit docker-build docker-run docker-push dvc-pull dvc-push mlflow-ui notebook gcp-setup
 
 # Default target
 .DEFAULT_GOAL := help
@@ -60,6 +60,10 @@ download-data:  ## Download dataset from Roboflow (reads .env + configs/data/foo
 	poetry run python scripts/download_dataset.py
 
 # ----- Training and experimentation -----
+sanity-train:  ## Quick smoke test: 2 epochs on Mac MPS to validate the pipeline
+	poetry run python -m football_tracker.training.train \
+		training.epochs=2 training.batch=4 training.device=mps
+
 train:  ## Train the baseline YOLOv11 model
 	poetry run python -m football_tracker.training.train
 

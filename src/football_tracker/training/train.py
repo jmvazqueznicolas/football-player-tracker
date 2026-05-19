@@ -1,32 +1,207 @@
 """Main training entry point.
 
-Configurable via Hydra. Logs to MLflow and W&B in parallel.
+Trains a YOLO model on the football detection dataset, parameterized by Hydra
+and instrumented with MLflow for experiment tracking and model registry.
 
 Usage:
-    python -m football_tracker.training.train
-    python -m football_tracker.training.train model=yolov11s training.epochs=100
+    poetry run python -m football_tracker.training.train
+    poetry run python -m football_tracker.training.train training.epochs=3
+    poetry run python -m football_tracker.training.train model=yolov11s training.epochs=50
+
+For a smoke test on Mac (MPS, 2 epochs):
+    poetry run python -m football_tracker.training.train \\
+        training.epochs=2 training.batch=8 training.device=mps
 """
 
-from __future__ import annotations
+import os
+from pathlib import Path
 
 import hydra
+import mlflow
+import yaml
+from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
+
+# Disable Ultralytics' built-in MLflow integration: we manage MLflow ourselves
+# to keep the run lifecycle in our hands and log Hydra configs + register models.
+os.environ["YOLO_MLFLOW"] = "false"
+try:
+    from ultralytics.utils import SETTINGS as _ULTRA_SETTINGS
+
+    _ULTRA_SETTINGS["mlflow"] = False
+except Exception:
+    pass
+
+from ultralytics import YOLO  # noqa: E402
+
+from football_tracker.training.callbacks import make_mlflow_callbacks  # noqa: E402
+from football_tracker.training.utils import cfg_to_flat_params  # noqa: E402
+from football_tracker.utils.logging import get_logger, setup_logging  # noqa: E402
+
+logger = get_logger()
+
+
+def _resolve_data_yaml(cfg: DictConfig) -> Path:
+    """Resolve the dataset YAML path relative to the project root if needed."""
+    yaml_path = Path(cfg.data.yaml_path)
+    if not yaml_path.is_absolute():
+        # Hydra runs from a fresh output dir, so relative paths must resolve
+        # against the original project root, not the Hydra working dir.
+        project_root = Path(hydra.utils.get_original_cwd())
+        yaml_path = (project_root / yaml_path).resolve()
+    if not yaml_path.exists():
+        raise FileNotFoundError(f"Dataset YAML not found: {yaml_path}")
+    return yaml_path
+
+
+def _materialize_absolute_data_yaml(original_yaml: Path, output_dir: Path) -> Path:
+    """Write a resolved copy of the dataset YAML with an absolute `path:`.
+
+    Ultralytics resolves the `path` field of a YOLO dataset YAML against its
+    *global* SETTINGS["datasets_dir"] (typically ~/datasets), not against the
+    location of the YAML itself. To avoid having to commit absolute paths
+    into the repo, we rewrite the YAML at training time inside the Hydra
+    output dir and point Ultralytics there.
+    """
+    spec = yaml.safe_load(original_yaml.read_text())
+    # The directory that contains train/, valid/, test/ subfolders is the
+    # original_yaml's parent. Make it absolute and inject it as `path:`.
+    spec["path"] = str(original_yaml.parent.resolve())
+    # Make sure the train/val/test entries stay simple relative names.
+    for key in ("train", "val", "test"):
+        if key in spec and isinstance(spec[key], str):
+            # If user wrote "../train/images" or similar, normalize to "train/images"
+            spec[key] = spec[key].lstrip("./").replace("..\\", "").replace("../", "")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    resolved_yaml = output_dir / "data_resolved.yaml"
+    resolved_yaml.write_text(yaml.safe_dump(spec, sort_keys=False))
+    return resolved_yaml
+
+
+def _setup_mlflow(cfg: DictConfig) -> None:
+    """Point MLflow at the configured tracking server and experiment."""
+    uri = cfg.tracking_backend.mlflow.tracking_uri
+    experiment = cfg.tracking_backend.mlflow.experiment_name
+    mlflow.set_tracking_uri(uri)
+    mlflow.set_experiment(experiment)
+    logger.info(f"MLflow tracking URI: {uri}")
+    logger.info(f"MLflow experiment:   {experiment}")
+
+
+def _build_run_name(cfg: DictConfig) -> str:
+    """Construct a human-readable MLflow run name."""
+    return f"{cfg.model.name}_{cfg.training.epochs}ep_imgsz{cfg.training.imgsz}"
+
+
+def _maybe_register_model(run_id: str, cfg: DictConfig) -> None:
+    """Register best.pt in MLflow Model Registry (3.x uses aliases instead of stages)."""
+    if not cfg.tracking_backend.mlflow.enabled:
+        return
+    model_uri = f"runs:/{run_id}/weights/best.pt"
+    registry_name = cfg.model.registry_name
+    try:
+        mv = mlflow.register_model(model_uri, registry_name)
+        logger.info(f"Registered model '{registry_name}' as version {mv.version}")
+        # Tag this version as the latest candidate (MLflow 3.x prefers aliases over stages)
+        client = mlflow.tracking.MlflowClient()
+        client.set_registered_model_alias(registry_name, "candidate", mv.version)
+        logger.info(f"Aliased '{registry_name}' v{mv.version} as @candidate")
+    except Exception as e:
+        logger.warning(f"Could not register model in MLflow Registry: {e}")
 
 
 @hydra.main(version_base="1.3", config_path="../../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Train a YOLO model with full experiment tracking.
+    """Train a YOLO model with full MLflow instrumentation."""
+    setup_logging()
+    load_dotenv()
 
-    Implementation lands in Session 2:
-      1. Initialize MLflow run and W&B run.
-      2. Log Hydra config as a single artifact.
-      3. Load Ultralytics YOLO with cfg.model.weights.
-      4. Call model.train(**cfg.training) and stream metrics.
-      5. Register best.pt in MLflow Model Registry under cfg.model.registry_name.
-      6. Finish W&B run.
-    """
-    print(OmegaConf.to_yaml(cfg))
-    raise NotImplementedError("Implement in Session 2.")
+    logger.info("─" * 80)
+    logger.info("Training configuration:")
+    logger.info("\n" + OmegaConf.to_yaml(cfg))
+    logger.info("─" * 80)
+
+    data_yaml = _resolve_data_yaml(cfg)
+    logger.info(f"Original dataset YAML: {data_yaml}")
+
+    if cfg.tracking_backend.mlflow.enabled:
+        _setup_mlflow(cfg)
+
+    run_name = _build_run_name(cfg)
+    hydra_output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+
+    # Materialize a resolved data.yaml with absolute paths so Ultralytics
+    # can find the dataset regardless of its global SETTINGS["datasets_dir"].
+    resolved_data_yaml = _materialize_absolute_data_yaml(data_yaml, hydra_output_dir)
+    logger.info(f"Resolved dataset YAML: {resolved_data_yaml}")
+
+    with mlflow.start_run(run_name=run_name) as run:
+        run_id = run.info.run_id
+        logger.info(f"MLflow run name: {run_name}")
+        logger.info(f"MLflow run ID:   {run_id}")
+
+        # 1. Log the full Hydra config as MLflow params (flattened, dot notation)
+        params = cfg_to_flat_params(cfg)
+        # MLflow caps to 100 params per call; chunk if needed
+        items = list(params.items())
+        for i in range(0, len(items), 100):
+            mlflow.log_params(dict(items[i : i + 100]))
+        logger.info(f"Logged {len(params)} hyperparameters to MLflow")
+
+        # 2. Save the resolved config as a YAML artifact (very useful in retros)
+        cfg_path = hydra_output_dir / "resolved_config.yaml"
+        cfg_path.write_text(OmegaConf.to_yaml(cfg))
+        mlflow.log_artifact(str(cfg_path), artifact_path="config")
+
+        # 3. Tag the run with useful context
+        mlflow.set_tags(
+            {
+                "model": cfg.model.name,
+                "imgsz": str(cfg.training.imgsz),
+                "epochs": str(cfg.training.epochs),
+                "dataset": cfg.data.name,
+                "seed": str(cfg.project.seed),
+            }
+        )
+
+        # 4. Load model and attach our callbacks BEFORE training
+        model = YOLO(cfg.model.weights)
+        for event, fn in make_mlflow_callbacks().items():
+            model.add_callback(event, fn)
+        logger.info(f"Loaded {cfg.model.weights} and attached MLflow callbacks")
+
+        # 5. Train (using the resolved data YAML with absolute paths)
+        training_kwargs = OmegaConf.to_container(cfg.training, resolve=True)
+        results = model.train(
+            data=str(resolved_data_yaml),
+            project=str(hydra_output_dir),
+            name="yolo_run",
+            exist_ok=True,
+            seed=cfg.project.seed,
+            **training_kwargs,
+        )
+
+        # 6. Final summary metrics (single values, easy to read in the UI)
+        if results is not None:
+            box = getattr(results, "box", None)
+            if box is not None:
+                final_metrics = {
+                    "final_mAP50": float(getattr(box, "map50", 0.0)),
+                    "final_mAP50-95": float(getattr(box, "map", 0.0)),
+                    "final_precision": float(getattr(box, "mp", 0.0)),
+                    "final_recall": float(getattr(box, "mr", 0.0)),
+                }
+                mlflow.log_metrics(final_metrics)
+                logger.info(f"Final metrics: {final_metrics}")
+
+        # 7. Register the model in the Model Registry
+        _maybe_register_model(run_id, cfg)
+
+        logger.info("─" * 80)
+        logger.info(f"Done. MLflow run: {run_id}")
+        logger.info(f"Output dir:       {hydra_output_dir}")
+        logger.info("─" * 80)
 
 
 if __name__ == "__main__":

@@ -8,8 +8,8 @@ yaml_path: ${data.root}/data.yaml
 # footage to increase intra-class diversity (lighting, camera angles, leagues).
 roboflow:
   workspace: roboflow-jvuqo
-  project: football-players-detection-3zvbc
-  version: 11
+  project: football-players-detection-2frwp
+  version: 1
   format: yolov11
 splits:
   train: ${data.root}/images/train

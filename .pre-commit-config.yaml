@@ -2,7 +2,7 @@
 # Manual run: pre-commit run --all-files
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -17,29 +17,38 @@ repos:
       - id: mixed-line-ending
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: 5e2fb545eba1ea9dc051f6f962d52fe8f76a9794  # frozen: v0.15.13
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
   - repo: https://github.com/psf/black
-    rev: 24.8.0
+    rev: 87928e6d6761a4a6d22250e1fee5601b3998086e  # frozen: 26.5.1
     hooks:
       - id: black
         language_version: python3
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+    rev: d2823d321df3af8f878f7ee3414dc94d037145b9  # frozen: v2.1.0
     hooks:
       - id: mypy
         additional_dependencies: [types-requests, types-PyYAML]
         args: [--ignore-missing-imports, --no-strict-optional]
         exclude: ^(notebooks/|tests/|scripts/)
 
+  - repo: https://github.com/kynan/nbstripout
+    rev: f5da19ce3b7b40e97c12ee9cd8ce97f48f97ddf7  # frozen: 0.9.1
+    hooks:
+      - id: nbstripout
+
   - repo: https://github.com/nbQA-dev/nbQA
-    rev: 1.9.0
+    rev: f96ec7f3b26a32619435686eb5813235f7e3327e  # frozen: 1.9.1
     hooks:
       - id: nbqa-ruff
-        args: [--fix]
+        # E402 (import not at top of file) is intentional in notebooks —
+        # each cell is its own execution unit. per-file-ignores with *.ipynb
+        # doesn't work because nbqa passes a temp .py file to ruff, not the
+        # original .ipynb, so the pattern never matches.
+        args: [--fix, --extend-ignore=E402]
       - id: nbqa-black

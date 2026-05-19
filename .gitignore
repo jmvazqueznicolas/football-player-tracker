@@ -27,6 +27,8 @@ venv/
 env/
 ENV/
 .python-version
+# Previene que placeholders de documentación se creen accidentalmente como venvs
+path/
 
 # --------- Poetry ---------
 poetry.lock

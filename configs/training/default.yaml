@@ -24,8 +24,9 @@ flipud: 0.0
 fliplr: 0.5
 mosaic: 1.0
 mixup: 0.0
-# Device: leave 'auto' so it picks GPU if available
-device: auto
+# Device: null = auto-detect (MPS on Mac, CUDA on Linux, else CPU).
+# Override via CLI: training.device=mps  or  training.device=0
+device: null
 workers: 8
 cache: false
 amp: true
