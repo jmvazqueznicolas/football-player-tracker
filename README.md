@@ -148,13 +148,40 @@ _To be completed in Session 1._
 
 ## Training pipeline
 
-_To be completed in Session 2._
+Training is orchestrated by `src/football_tracker/training/train.py` using Hydra for configuration and both MLflow and W&B for tracking.
+
+```bash
+# Full training (reads configs/config.yaml)
+make train
+
+# Override any parameter on the fly
+poetry run python -m football_tracker.training.train training.epochs=50 model=yolov11s
+
+# Sanity check (2 epochs, MPS)
+make sanity-train
+```
+
+Hydra writes a timestamped output directory under `runs/` with the resolved config, dataset YAML, and Ultralytics artifacts. Each run is logged to both trackers simultaneously with the same step index and metric names.
 
 ## Experiment tracking
 
-_To be completed in Session 2._
+Both MLflow and W&B run in parallel on every training job — same metrics, same step index, complementary strengths.
 
-Both MLflow (self-hosted, GCS backend) and Weights & Biases (free tier) are used in parallel. MLflow handles model registry and stage promotion (Staging → Production). W&B provides richer dashboards for cross-run comparison.
+| Concern | MLflow | W&B |
+|---------|--------|-----|
+| Model Registry | ✅ versions + `@candidate` / `@champion` aliases | — |
+| Per-epoch metrics | ✅ | ✅ |
+| Hyperparameters | ✅ (87 params via Hydra flatten) | ✅ (full config object) |
+| Artifact storage | ✅ local → GCS (Session 3) | ✅ model artifact |
+| Cross-run comparison | basic | ✅ rich dashboards |
+
+**Local setup:**
+```bash
+# Start MLflow server (required before training)
+mlflow ui --backend-store-uri sqlite:///mlflow.db --host 0.0.0.0 --port 8080
+```
+
+Set `MLFLOW_TRACKING_URI=http://localhost:8080` and `WANDB_API_KEY=<key>` in your `.env`.
 
 ## Hyperparameter optimization
 
@@ -202,7 +229,7 @@ _Living document — short rationales for each major choice._
 ## Roadmap
 
 - [x] Session 1 — Repo, dataset versioning, baseline training (mAP50=0.770, mAP50-95=0.479)
-- [ ] Session 2 — Training pipeline + MLflow + W&B
+- [x] Session 2 — Training pipeline + MLflow + W&B (dual tracking, Model Registry fix)
 - [ ] Session 3 — Optuna HPO + FiftyOne error analysis
 - [ ] Session 4 — ONNX export, tracking module, FastAPI
 - [ ] Session 5 — Docker, Streamlit, public deploy

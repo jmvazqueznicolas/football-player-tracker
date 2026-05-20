@@ -134,6 +134,13 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 exclude = ["notebooks", "data", "models", "mlruns", "wandb"]
 
+[[tool.mypy.overrides]]
+# wandb ships incomplete type stubs — attributes like wandb.run, wandb.init,
+# wandb.Artifact exist at runtime but mypy can't verify them statically.
+# Skipping type checks for wandb is standard practice in ML projects.
+module = ["wandb", "wandb.*"]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra -q --strict-markers --cov=football_tracker --cov-report=term-missing"
