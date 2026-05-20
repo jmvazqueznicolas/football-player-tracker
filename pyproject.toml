@@ -135,11 +135,14 @@ ignore_missing_imports = true
 exclude = ["notebooks", "data", "models", "mlruns", "wandb"]
 
 [[tool.mypy.overrides]]
-# wandb ships incomplete type stubs — attributes like wandb.run, wandb.init,
-# wandb.Artifact exist at runtime but mypy can't verify them statically.
-# Skipping type checks for wandb is standard practice in ML projects.
-module = ["wandb", "wandb.*"]
-ignore_errors = true
+# wandb has incomplete type stubs: run, init, Artifact, log, finish, summary
+# all exist at runtime but mypy can't see them statically. The errors live in
+# our modules (not in wandb itself), so the override must target our files.
+module = [
+    "football_tracker.training.train",
+    "football_tracker.training.callbacks",
+]
+disable_error_codes = ["attr-defined"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
