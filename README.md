@@ -20,7 +20,8 @@ End-to-end Computer Vision + MLOps project that detects and tracks football play
 | **Problem** | Multi-class object detection + multi-object tracking on football match footage |
 | **Model** | YOLOv11 (Ultralytics) fine-tuned on a custom football dataset, ONNX-exported for inference |
 | **Tracker** | BoT-SORT (built-in Ultralytics) for persistent player IDs across frames |
-| **Best mAP50** | _TBD after training_ |
+| **Best mAP50** | 0.770 (baseline YOLOv11n, 30 epochs, imgsz=640) |
+| **Best mAP50-95** | 0.479 (baseline) |
 | **Inference latency** | _TBD after benchmark (CPU and GPU)_ |
 | **Stack** | PyTorch, Ultralytics, MLflow, Weights & Biases, DVC, Optuna, FiftyOne, FastAPI, Streamlit, Docker, GitHub Actions, Evidently, GCP |
 
@@ -200,7 +201,7 @@ _Living document — short rationales for each major choice._
 
 ## Roadmap
 
-- [ ] Session 1 — Repo, dataset versioning, baseline training
+- [x] Session 1 — Repo, dataset versioning, baseline training (mAP50=0.770, mAP50-95=0.479)
 - [ ] Session 2 — Training pipeline + MLflow + W&B
 - [ ] Session 3 — Optuna HPO + FiftyOne error analysis
 - [ ] Session 4 — ONNX export, tracking module, FastAPI
