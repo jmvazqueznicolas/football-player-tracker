@@ -185,9 +185,34 @@ Set `MLFLOW_TRACKING_URI=http://localhost:8080` and `WANDB_API_KEY=<key>` in you
 
 ## Hyperparameter optimization
 
-_To be completed in Session 3._
+Bayesian search with **Optuna TPE sampler** over 5 hyperparameters. Each trial trains YOLOv11n for 15 epochs on T4 and is logged to MLflow as a **nested run** under a single parent HPO run, so the full search is visible in one place.
 
-Optuna Bayesian search over learning rate, momentum, weight decay and augmentation hyperparameters. Each trial logged to MLflow.
+**Search space:**
+
+| Parameter | Type | Range |
+|---|---|---|
+| `lr0` | log-uniform | 1e-5 … 1e-2 |
+| `momentum` | uniform | 0.85 … 0.98 |
+| `weight_decay` | log-uniform | 1e-6 … 1e-3 |
+| `mosaic` | uniform | 0.0 … 1.0 |
+| `mixup` | uniform | 0.0 … 0.3 |
+
+The study is persisted to `optuna_study.db` (SQLite, inside the Hydra output dir) so it can be interrupted and resumed. The best params and study DB are logged as MLflow artifacts.
+
+```bash
+# Default: 20 trials × 15 epochs each (use notebooks/colab_hpo.ipynb for T4)
+make tune
+
+# Quick smoke test (3 trials, 5 epochs, MPS)
+poetry run python -m football_tracker.training.tune \
+    tuning.n_trials=3 tuning.trial_epochs=5 training.device=mps
+
+# Custom search
+poetry run python -m football_tracker.training.tune \
+    tuning.n_trials=50 tuning.trial_epochs=20
+```
+
+Config lives in `configs/tuning/optuna.yaml`.
 
 ## Error analysis
 
