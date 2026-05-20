@@ -1,7 +1,11 @@
 """Main training entry point.
 
 Trains a YOLO model on the football detection dataset, parameterized by Hydra
-and instrumented with MLflow for experiment tracking and model registry.
+and instrumented with both MLflow and W&B for experiment tracking.
+
+Both trackers run in parallel:
+  - MLflow  → Model Registry, artifact storage, self-hosted (SQLite / GCS)
+  - W&B     → richer dashboards, cross-run comparison, hosted service
 
 Usage:
     poetry run python -m football_tracker.training.train
@@ -22,19 +26,27 @@ import yaml
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 
-# Disable Ultralytics' built-in MLflow integration: we manage MLflow ourselves
-# to keep the run lifecycle in our hands and log Hydra configs + register models.
+# Disable Ultralytics' built-in MLflow and W&B integrations.
+# We manage both run lifecycles ourselves so we can:
+#   1. Log the full Hydra config as params.
+#   2. Keep MLflow run ID in our hands for model registration.
+#   3. Keep both trackers in sync (same step, same metric names).
 os.environ["YOLO_MLFLOW"] = "false"
+os.environ["YOLO_WANDB"] = "false"
 try:
     from ultralytics.utils import SETTINGS as _ULTRA_SETTINGS
 
     _ULTRA_SETTINGS["mlflow"] = False
+    _ULTRA_SETTINGS["wandb"] = False
 except Exception:
     pass
 
 from ultralytics import YOLO  # noqa: E402
 
-from football_tracker.training.callbacks import make_mlflow_callbacks  # noqa: E402
+from football_tracker.training.callbacks import (  # noqa: E402
+    make_mlflow_callbacks,
+    make_wandb_callbacks,
+)
 from football_tracker.training.utils import cfg_to_flat_params  # noqa: E402
 from football_tracker.utils.logging import get_logger, setup_logging  # noqa: E402
 
@@ -89,24 +101,56 @@ def _setup_mlflow(cfg: DictConfig) -> None:
     logger.info(f"MLflow experiment:   {experiment}")
 
 
+def _setup_wandb(cfg: DictConfig, run_name: str) -> None:
+    """Initialize a W&B run with the full Hydra config as its config object."""
+    try:
+        import wandb
+    except ImportError:
+        logger.warning("wandb not installed — skipping W&B setup")
+        return
+
+    wcfg = cfg.tracking_backend.wandb
+    entity = wcfg.entity if str(wcfg.entity) not in ("null", "None", "") else None
+
+    wandb.init(  # type: ignore[attr-defined]
+        project=wcfg.project,
+        entity=entity,
+        name=run_name,
+        config=OmegaConf.to_container(cfg, resolve=True),
+        tags=list(wcfg.tags),
+        resume="allow",
+    )
+    logger.info(f"W&B run URL: {wandb.run.url}")  # type: ignore[attr-defined]
+
+
 def _build_run_name(cfg: DictConfig) -> str:
     """Construct a human-readable MLflow run name."""
     return f"{cfg.model.name}_{cfg.training.epochs}ep_imgsz{cfg.training.imgsz}"
 
 
 def _maybe_register_model(run_id: str, cfg: DictConfig) -> None:
-    """Register best.pt in MLflow Model Registry (3.x uses aliases instead of stages)."""
+    """Register best.pt in MLflow Model Registry with alias @candidate.
+
+    MLflow 3.x requires artifacts to be logged via mlflow.log_model() to use
+    the runs:/ shorthand in register_model(). Since we log weights with
+    log_artifacts() (plain files), we use create_model_version() with the
+    direct artifact URI instead — this bypasses the logged_model check and
+    works correctly with our artifact layout.
+    """
     if not cfg.tracking_backend.mlflow.enabled:
         return
-    model_uri = f"runs:/{run_id}/weights/best.pt"
     registry_name = cfg.model.registry_name
     try:
-        mv = mlflow.register_model(model_uri, registry_name)
-        logger.info(f"Registered model '{registry_name}' as version {mv.version}")
-        # Tag this version as the latest candidate (MLflow 3.x prefers aliases over stages)
         client = mlflow.tracking.MlflowClient()
+        artifact_uri = client.get_run(run_id).info.artifact_uri
+        source = f"{artifact_uri}/weights/best.pt"
+        mv = client.create_model_version(
+            name=registry_name,
+            source=source,
+            run_id=run_id,
+        )
         client.set_registered_model_alias(registry_name, "candidate", mv.version)
-        logger.info(f"Aliased '{registry_name}' v{mv.version} as @candidate")
+        logger.info(f"Registered '{registry_name}' v{mv.version} with alias @candidate")
     except Exception as e:
         logger.warning(f"Could not register model in MLflow Registry: {e}")
 
@@ -130,6 +174,9 @@ def main(cfg: DictConfig) -> None:
 
     run_name = _build_run_name(cfg)
     hydra_output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+
+    if cfg.tracking_backend.wandb.enabled:
+        _setup_wandb(cfg, run_name)
 
     # Materialize a resolved data.yaml with absolute paths so Ultralytics
     # can find the dataset regardless of its global SETTINGS["datasets_dir"].
@@ -165,11 +212,14 @@ def main(cfg: DictConfig) -> None:
             }
         )
 
-        # 4. Load model and attach our callbacks BEFORE training
+        # 4. Load model and attach callbacks for both trackers BEFORE training
         model = YOLO(cfg.model.weights)
         for event, fn in make_mlflow_callbacks().items():
             model.add_callback(event, fn)
-        logger.info(f"Loaded {cfg.model.weights} and attached MLflow callbacks")
+        if cfg.tracking_backend.wandb.enabled:
+            for event, fn in make_wandb_callbacks().items():
+                model.add_callback(event, fn)
+        logger.info(f"Loaded {cfg.model.weights} and attached MLflow + W&B callbacks")
 
         # 5. Train (using the resolved data YAML with absolute paths)
         training_kwargs = OmegaConf.to_container(cfg.training, resolve=True)
@@ -182,7 +232,8 @@ def main(cfg: DictConfig) -> None:
             **training_kwargs,
         )
 
-        # 6. Final summary metrics (single values, easy to read in the UI)
+        # 6. Final summary metrics (single values, easy to read in both UIs)
+        final_metrics: dict = {}
         if results is not None:
             box = getattr(results, "box", None)
             if box is not None:
@@ -195,8 +246,21 @@ def main(cfg: DictConfig) -> None:
                 mlflow.log_metrics(final_metrics)
                 logger.info(f"Final metrics: {final_metrics}")
 
-        # 7. Register the model in the Model Registry
+        # 7. Register the model in the MLflow Model Registry
         _maybe_register_model(run_id, cfg)
+
+        # 8. Push final summary metrics to W&B and close the run
+        if cfg.tracking_backend.wandb.enabled:
+            try:
+                import wandb
+
+                if wandb.run is not None:  # type: ignore[attr-defined]
+                    if final_metrics:
+                        wandb.summary.update(final_metrics)  # type: ignore[attr-defined]
+                    wandb.finish()  # type: ignore[attr-defined]
+                    logger.info("W&B run finished")
+            except ImportError:
+                pass
 
         logger.info("─" * 80)
         logger.info(f"Done. MLflow run: {run_id}")
